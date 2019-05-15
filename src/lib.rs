@@ -30,6 +30,12 @@ const RNDC: [u64; 24] = [
     0x8000000080008008,
 ];
 
+pub trait Shaaa {
+    fn update(&mut self, data: &[u8]);
+    fn digest(self) -> Vec<u8>;
+    fn digest_renew(&mut self) -> Vec<u8>;
+}
+
 macro_rules! shaaa_impl {
     ($name:ident, $B:expr, $R:expr, $D:expr) => {
         pub struct $name {
@@ -40,7 +46,6 @@ macro_rules! shaaa_impl {
 
         impl $name {
             const RATE64: usize = ($B - $D * 2) / 64;
-            const IRATE64: isize = Self::RATE64 as isize;
             const RATE8: usize = ($B - $D * 2) / 8;
 
             pub fn new() -> Self {
@@ -53,9 +58,26 @@ macro_rules! shaaa_impl {
             }
 
             unsafe fn update_block(&mut self, block: *const u64) {
-                // Xor
-                for i in 0..Self::IRATE64 {
-                    self.state[i as usize] ^= *block.offset(i);
+                let block: &[u64] = std::slice::from_raw_parts(block, Self::RATE64);
+
+                let mut ptr = 0;
+                
+                // SIMD actually slows down the hashing, because the data is mostly unaligned
+                /*
+                while ptr + 8 <= Self::RATE64 {
+                    let s = packed_simd::u64x8::from_slice_unaligned_unchecked(&self.state[ptr..]);
+                    let b = packed_simd::u64x8::from_slice_unaligned_unchecked(&block[ptr..]);
+
+                    let result = s ^ b;
+                    result.write_to_slice_unaligned_unchecked(&mut self.state[ptr..]);
+
+                    ptr += 8;
+                }
+                */
+
+                while ptr < Self::RATE64 {
+                    self.state[ptr] ^= block[ptr];
+                    ptr += 1;
                 }
 
                 // Block permu
@@ -111,12 +133,14 @@ macro_rules! shaaa_impl {
 
                 self.counter = len - ptr;
 
-                unsafe {
-                    std::ptr::copy_nonoverlapping(
-                        &data[ptr] as *const u8,
-                        std::mem::transmute(&mut self.waiting[0] as *mut u8),
-                        self.counter,
-                    );
+                if self.counter > 0 {
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            &data[ptr] as *const u8,
+                            std::mem::transmute(&mut self.waiting[0] as *mut u8),
+                            self.counter,
+                            );
+                    }
                 }
             }
 
@@ -154,7 +178,7 @@ macro_rules! shaaa_impl {
                     }
                 }
 
-                // TODO: merge rho and pi, then benchmark to see if improved
+                /*
                 // rho, state[0] untouched
                 for i in 1..25 {
                         self.state[i] = self.state[i].rotate_left(ROTC[i]);
@@ -164,6 +188,13 @@ macro_rules! shaaa_impl {
                 let mut transformed: [u64; 25] = unsafe { std::mem::uninitialized() };
                 for i in 0..25 {
                     transformed[i] = self.state[PFROM[i]];
+                }
+                */
+
+                // Rho + pi
+                let mut transformed: [u64; 25] = unsafe { std::mem::uninitialized() };
+                for i in 0..25 {
+                    transformed[i] = self.state[PFROM[i]].rotate_left(ROTC[PFROM[i]]);
                 }
 
                 // chi
@@ -219,6 +250,19 @@ macro_rules! shaaa_impl {
                 }
             }
         }
+
+        impl Shaaa for $name {
+            fn update(&mut self, data: &[u8]) {
+                self.update(data);
+            }
+            fn digest(self) -> Vec<u8> {
+                self.digest().to_vec()
+            }
+            fn digest_renew(&mut self) -> Vec<u8> {
+                let inner = std::mem::replace(&mut *self, $name::new());
+                inner.digest().to_vec()
+            }
+        }
     }
 }
 
@@ -226,3 +270,13 @@ shaaa_impl!(Shaaa224, 1600, 24, 224);
 shaaa_impl!(Shaaa256, 1600, 24, 256);
 shaaa_impl!(Shaaa384, 1600, 24, 384);
 shaaa_impl!(Shaaa512, 1600, 24, 512);
+
+pub fn from_length(length: usize) -> Option<Box<Shaaa>> {
+    match length {
+        224 => Some(Box::new(Shaaa224::new())),
+        256 => Some(Box::new(Shaaa256::new())),
+        384 => Some(Box::new(Shaaa384::new())),
+        512 => Some(Box::new(Shaaa512::new())),
+        _ => None,
+    }
+}
