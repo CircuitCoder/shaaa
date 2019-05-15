@@ -14,3 +14,7 @@ packed_simd = "0.3.3"
 [lib]
 name = "shaaa"
 path = "src/lib.rs"
+
+[features]
+default = []
+internal = []

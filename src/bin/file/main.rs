@@ -45,6 +45,8 @@ fn main(args: Args) {
     let tot_size_m = tot_size as f64 / 1024f64 / 1024f64;
     let m_per_sec = tot_size_m / secs_f;
 
+    println!("Size: {}", tot_size);
+
     println!("Digest:");
     for i in dig.iter() {
         print!("{:0>2x}", i);

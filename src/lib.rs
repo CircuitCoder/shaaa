@@ -149,7 +149,7 @@ macro_rules! shaaa_impl {
                     std::ptr::write_bytes(&mut self.waiting[self.counter] as *mut u8, 0, Self::RATE8 - self.counter);
                 }
 
-                // As specified, 0x06 as delimiter for 2-bit sequence 0b01000000 ending for SHA3
+                // As specified, 0,1,1(0b110 = 0x06 on first bit) as delimiter for 2-bit sequence 0b01000000 ending for SHA3
                 self.waiting[self.counter] ^= 0x06;
                 self.waiting[Self::RATE8 - 1] ^= 0x80;
 
@@ -160,11 +160,21 @@ macro_rules! shaaa_impl {
 
             fn permu(&mut self) {
                 for i in 0..$R {
+                    if cfg!(feature = "internal") {
+                        println!("======");
+                        println!("Round {}", i);
+                    }
+
                     self.round(RNDC[i]);
                 }
             }
 
             fn round(&mut self, rndc: u64) {
+                if cfg!(feature = "internal") {
+                    println!("State:");
+                    self.print_state();
+                }
+
                 // theta
                 let mut xorcol: [u64; 5] = [0; 5];
                 for i in 0..25 {
@@ -176,6 +186,11 @@ macro_rules! shaaa_impl {
                     for j in 0..5 {
                         self.state[i+j*5] ^= val;
                     }
+                }
+
+                if cfg!(feature = "internal") {
+                    println!("After theta:");
+                    self.print_state();
                 }
 
                 /*
@@ -210,6 +225,11 @@ macro_rules! shaaa_impl {
 
                 // iota
                 self.state[0] ^= rndc;
+
+                if cfg!(feature = "internal") {
+                    println!("After rho + pi + chi + iota");
+                    self.print_state();
+                }
             }
 
             // Consume self
@@ -244,7 +264,11 @@ macro_rules! shaaa_impl {
             pub fn print_state(&self) {
                 for i in 0..5 {
                     for j in 0..5 {
-                        print!("{:0>16x} ", self.state[i * 5 + j]);
+                        let transmuted: [u8; 8] = unsafe { std::mem::transmute(self.state[i * 5 + j]) };
+                        for k in 0..8 {
+                            print!("{:0>2x}", transmuted[k]);
+                        }
+                        print!(" ");
                     }
                     println!("");
                 }
