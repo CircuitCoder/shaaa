@@ -1,13 +1,13 @@
-use shaaa::Shaaa512;
+use shaaa::*;
 
 fn main() {
-    let mut s = Shaaa512::new();
+    let mut s = Shaaa256::new();
     s.update("abcde".as_bytes());
 
     let dig = s.digest();
 
     for c in dig.iter() {
-        print!("{:x}", c);
+        print!("{:0>2x}", c);
     }
 
     println!("");
